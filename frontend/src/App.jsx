@@ -111,6 +111,43 @@ export default function App() {
       );
   };
 
+  // Replace your existing dashboard logic in App.jsx
+
+  // 1. Unified Fetcher for both Ledger and Dashboard
+  const refreshAllStates = () => {
+    // Fetch Vouchers
+    fetch("http://localhost:5000/api/vouchers")
+      .then((res) => res.json())
+      .then((data) => setVouchers(data));
+
+    // Fetch Dashboard Metrics
+    fetch("http://localhost:5000/api/dashboard/metrics")
+      .then((res) => res.json())
+      .then((data) => setAwpbData(data))
+      .catch(() => console.error("Failed to sync dashboard state."));
+  };
+
+  // 2. useEffect update
+  useEffect(() => {
+    refreshAllStates();
+  }, []);
+
+  // 3. Update handleAnchorExecution to trigger state refresh
+  const handleAnchorExecution = () => {
+    if (!selectedVoucherUuid || !uploadedFileName) return;
+    fetch(`http://localhost:5000/api/vouchers/${selectedVoucherUuid}/anchor`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileName: uploadedFileName }),
+    }).then(() => {
+      setSystemAlert({
+        type: "success",
+        message: "Ledger block sealed and metrics updated.",
+      });
+      refreshAllStates(); // Refresh both List and Dashboard Metrics
+    });
+  };
+
   // Automate double-entry tracking when component selections switch
   const handleComponentChange = (code) => {
     const mappings = componentAccountMap[code];
@@ -172,26 +209,26 @@ export default function App() {
       );
   };
 
-  const handleAnchorExecution = () => {
-    if (!selectedVoucherUuid || !uploadedFileName) return;
-    setSystemAlert(null);
+  // const handleAnchorExecution = () => {
+  //   if (!selectedVoucherUuid || !uploadedFileName) return;
+  //   setSystemAlert(null);
 
-    fetch(`http://localhost:5000/api/vouchers/${selectedVoucherUuid}/anchor`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fileName: uploadedFileName }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        setObservedHash(data.ipfsHash);
-        setSystemAlert({
-          type: "success",
-          message:
-            "Cryptographic block successfully anchored and sealed to transaction sequence.",
-        });
-        refreshLedgerData();
-      });
-  };
+  //   fetch(`http://localhost:5000/api/vouchers/${selectedVoucherUuid}/anchor`, {
+  //     method: "POST",
+  //     headers: { "Content-Type": "application/json" },
+  //     body: JSON.stringify({ fileName: uploadedFileName }),
+  //   })
+  //     .then((res) => res.json())
+  //     .then((data) => {
+  //       setObservedHash(data.ipfsHash);
+  //       setSystemAlert({
+  //         type: "success",
+  //         message:
+  //           "Cryptographic block successfully anchored and sealed to transaction sequence.",
+  //       });
+  //       refreshLedgerData();
+  //     });
+  // };
 
   const handleFetchLedgerReport = () => {
     fetch(

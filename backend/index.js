@@ -1,16 +1,18 @@
-import express from 'express';
-import cors from 'cors';
-import crypto from 'crypto';
-import pg from 'pg';
+import express from "express";
+import cors from "cors";
+import crypto from "crypto";
+import pg from "pg";
 
 const { Pool } = pg;
 const app = express();
 
-app.use(cors({
-  origin: 'http://localhost:8080',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: "http://localhost:8080",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  }),
+);
 
 app.use(express.json());
 
@@ -18,17 +20,17 @@ app.use(express.json());
 // DATABASE CONNECTION CONFIGURATION (POOL ENGINE)
 // =========================================================================
 const pool = new Pool({
-  host: process.env.DB_HOST || 'db',
+  host: process.env.DB_HOST || "db",
   port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'fundschain_db',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'your_secure_dev_password',
+  database: process.env.DB_NAME || "fundschain_db",
+  user: process.env.DB_USER || "postgres",
+  password: process.env.DB_PASSWORD || "your_secure_dev_password",
 });
 
 // Staging target balance thresholds based on AWPB benchmarks
 const BUDGET_ALLOCATIONS = {
-  "COMP-01": 35000000.00,
-  "COMP-02": 15000000.00
+  "COMP-01": 35000000.0,
+  "COMP-02": 15000000.0,
 };
 
 // =========================================================================
@@ -63,20 +65,28 @@ initDatabase();
 // =========================================================================
 // MODULE 1 & LAB 1: VOUCHER TRANSACTION PROCESSING WITH DB CHECKS
 // =========================================================================
-app.post('/api/vouchers', async (req, res) => {
-  const { voucherNo, date, componentCode, drComponent, drAmount, crAccount, crAmount } = req.body;
+app.post("/api/vouchers", async (req, res) => {
+  const {
+    voucherNo,
+    date,
+    componentCode,
+    drComponent,
+    drAmount,
+    crAccount,
+    crAmount,
+  } = req.body;
 
   // 1. Double-Entry Structural Integrity Verification
   const balanceDelta = parseFloat(drAmount) - parseFloat(crAmount);
   if (Math.abs(balanceDelta) !== 0) {
     return res.status(400).json({
       errorCode: "EX_DOUBLE_ENTRY_IMBALANCE",
-      message: `Accounting Validation Failure: Debit and Credit distributions must resolve to 0.00 exactly. Current Delta: ${balanceDelta.toFixed(2)} KES.`
+      message: `Accounting Validation Failure: Debit and Credit distributions must resolve to 0.00 exactly. Current Delta: ${balanceDelta.toFixed(2)} KES.`,
     });
   }
 
   const selectedComponent = componentCode || "COMP-02";
-  const maxLimit = BUDGET_ALLOCATIONS[selectedComponent] || 15000000.00;
+  const maxLimit = BUDGET_ALLOCATIONS[selectedComponent] || 15000000.0;
 
   try {
     // 2. Real-Time Aggregate Spent Query execution across immutable/confirmed lines
@@ -91,7 +101,7 @@ app.post('/api/vouchers', async (req, res) => {
     if (totalSpent + parseFloat(drAmount) > maxLimit) {
       return res.status(400).json({
         errorCode: "EX_STRICT_BUDGET_CAP_EXCEEDED",
-        message: `Transaction Blocked: Requested amount of ${parseFloat(drAmount).toLocaleString()} KES exceeds the allocated Annual Work Plan & Budget (AWPB) ceiling for ${selectedComponent}. Available Room: ${(maxLimit - totalSpent).toLocaleString()} KES.`
+        message: `Transaction Blocked: Requested amount of ${parseFloat(drAmount).toLocaleString()} KES exceeds the allocated Annual Work Plan & Budget (AWPB) ceiling for ${selectedComponent}. Available Room: ${(maxLimit - totalSpent).toLocaleString()} KES.`,
       });
     }
 
@@ -104,17 +114,17 @@ app.post('/api/vouchers', async (req, res) => {
     const values = [
       crypto.randomUUID(),
       voucherNo || `NAVCP-V-${Math.floor(100 + Math.random() * 900)}`,
-      date || new Date().toISOString().split('T')[0],
+      date || new Date().toISOString().split("T")[0],
       selectedComponent,
       drComponent || "Component 2.1 (Agricultural Inputs)",
       parseFloat(drAmount),
       crAccount || "Kenya CBK Designated Account",
       parseFloat(crAmount),
-      "PENDING_QUEUE" // Unconfirmed raw voucher state
+      "PENDING_QUEUE", // Unconfirmed raw voucher state
     ];
 
     const result = await pool.query(insertQuery, values);
-    
+
     const record = {
       uuid: result.rows[0].uuid,
       voucherNo: result.rows[0].voucher_no,
@@ -124,24 +134,30 @@ app.post('/api/vouchers', async (req, res) => {
       drAmount: parseFloat(result.rows[0].dr_amount),
       crAccount: result.rows[0].cr_account,
       crAmount: parseFloat(result.rows[0].cr_amount),
-      status: result.rows[0].status
+      status: result.rows[0].status,
     };
 
-    return res.status(201).json({ message: "Voucher validation successful", record });
+    return res
+      .status(201)
+      .json({ message: "Voucher validation successful", record });
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ message: "Database infrastructure write fault." });
+    return res
+      .status(500)
+      .json({ message: "Database infrastructure write fault." });
   }
 });
 
 // Sync Ledger Read Query Engine
-app.get('/api/vouchers', async (req, res) => {
+app.get("/api/vouchers", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM vouchers ORDER BY created_at DESC");
-    const formatted = result.rows.map(row => ({
+    const result = await pool.query(
+      "SELECT * FROM vouchers ORDER BY created_at DESC",
+    );
+    const formatted = result.rows.map((row) => ({
       uuid: row.uuid,
       voucherNo: row.voucher_no,
-      date: row.date.toISOString().split('T')[0],
+      date: row.date.toISOString().split("T")[0],
       componentCode: row.component_code,
       drComponent: row.dr_component,
       drAmount: parseFloat(row.dr_amount),
@@ -149,7 +165,7 @@ app.get('/api/vouchers', async (req, res) => {
       crAmount: parseFloat(row.cr_amount),
       status: row.status,
       ipfsHash: row.ipfs_hash,
-      digitalSignature: row.digital_signature
+      digitalSignature: row.digital_signature,
     }));
     res.json(formatted);
   } catch (err) {
@@ -160,19 +176,30 @@ app.get('/api/vouchers', async (req, res) => {
 // =========================================================================
 // MODULE 2 & LAB 2: IPFS CRYPTOGRAPHIC DATA STORAGE BINDING UPDATE
 // =========================================================================
-app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
+app.post("/api/vouchers/:uuid/anchor", async (req, res) => {
   const { uuid } = req.params;
   const { fileName } = req.body;
 
   try {
-    const checkRes = await pool.query("SELECT * FROM vouchers WHERE uuid = $1", [uuid]);
+    const checkRes = await pool.query(
+      "SELECT * FROM vouchers WHERE uuid = $1",
+      [uuid],
+    );
     if (checkRes.rows.length === 0) {
-      return res.status(404).json({ message: "Target Voucher UUID execution node not found." });
+      return res
+        .status(404)
+        .json({ message: "Target Voucher UUID execution node not found." });
     }
 
-    const mockFileContent = `${fileName || 'invoice'}_salt_${Date.now()}`;
-    const computedHash = "Qm" + crypto.createHash('sha256').update(mockFileContent).digest('hex').substring(0, 44);
-    const digitalSignature = "sig_0x" + crypto.randomBytes(8).toString('hex');
+    const mockFileContent = `${fileName || "invoice"}_salt_${Date.now()}`;
+    const computedHash =
+      "Qm" +
+      crypto
+        .createHash("sha256")
+        .update(mockFileContent)
+        .digest("hex")
+        .substring(0, 44);
+    const digitalSignature = "sig_0x" + crypto.randomBytes(8).toString("hex");
 
     const updateQuery = `
       UPDATE vouchers 
@@ -185,7 +212,7 @@ app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
     res.json({
       message: "Attached & Signed",
       ipfsHash: computedHash,
-      signature: digitalSignature
+      signature: digitalSignature,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -195,7 +222,7 @@ app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
 // =========================================================================
 // MODULE 3 & LAB 3: REAL-TIME LEDGER ANALYTICS & SOE EXTRACTION
 // =========================================================================
-app.get('/api/reports/soe', async (req, res) => {
+app.get("/api/reports/soe", async (req, res) => {
   const { startDate, endDate } = req.query;
 
   try {
@@ -206,31 +233,75 @@ app.get('/api/reports/soe', async (req, res) => {
       reportQuery += " AND date >= $1 AND date <= $2";
       params = [startDate, endDate];
     }
-    
+
     reportQuery += " ORDER BY date ASC";
     const result = await pool.query(reportQuery, params);
-    
-    const formatted = result.rows.map(row => ({
+
+    const formatted = result.rows.map((row) => ({
       uuid: row.uuid,
       voucherNo: row.voucher_no,
-      date: row.date.toISOString().split('T')[0],
+      date: row.date.toISOString().split("T")[0],
       componentCode: row.component_code,
       drComponent: row.dr_component,
       drAmount: parseFloat(row.dr_amount),
-      status: row.status
+      status: row.status,
     }));
 
     res.json({
       generatedAt: new Date().toISOString(),
       systemCertificateStamp: "BLOCKCHAIN_LEDGER_STATE_VERIFIED_V1.1",
-      records: formatted
+      records: formatted,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// Add this to backend/index.js
+app.get("/api/dashboard/metrics", async (req, res) => {
+  try {
+    // 1. Fetch utilization from Ledger
+    const query = `
+      SELECT component_code, SUM(dr_amount) as total_utilized 
+      FROM vouchers 
+      WHERE status = 'CONFIRMED' 
+      GROUP BY component_code
+    `;
+    const result = await pool.query(query);
+
+    // 2. Define AWPB Benchmark Config
+    const allocations = {
+      "COMP-01": {
+        name: "Value Chain Infrastructure Support",
+        accountCode: "4120-01",
+        allocated: 35000000.0,
+      },
+      "COMP-02": {
+        name: "Agricultural Value Chain Finance",
+        accountCode: "4120-02",
+        allocated: 15000000.0,
+      },
+    };
+
+    // 3. Merge DB state with Allocations
+    const dashboardMetrics = {};
+    for (const [code, meta] of Object.entries(allocations)) {
+      const dbRecord = result.rows.find((r) => r.component_code === code);
+      dashboardMetrics[code] = {
+        ...meta,
+        utilized: dbRecord ? parseFloat(dbRecord.total_utilized) : 0,
+      };
+    }
+
+    res.json(dashboardMetrics);
+  } catch (err) {
+    // Log the full error for diagnostics and return a safe error message to the client
+    console.error('Error compiling dashboard metrics:', err);
+    res.status(500).json({ error: 'Failed to compile dashboard metrics.', details: err.message });
+  }
+});
+
 const PORT = process.env.PORT_CORE_API || 5000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`FundsChain API Core serving on port ${PORT}`);
 });
