@@ -1,8 +1,9 @@
-const express = require('express');
-const cors = require('cors');
-const crypto = require('crypto');
-const { Pool } = require('pg');
+import express from 'express';
+import cors from 'cors';
+import crypto from 'crypto';
+import pg from 'pg';
 
+const { Pool } = pg;
 const app = express();
 
 app.use(cors({
@@ -24,7 +25,7 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD || 'your_secure_dev_password',
 });
 
-// Staging target balance thresholds based on AWPB benchmarks[cite: 1]
+// Staging target balance thresholds based on AWPB benchmarks
 const BUDGET_ALLOCATIONS = {
   "COMP-01": 35000000.00,
   "COMP-02": 15000000.00
@@ -65,7 +66,7 @@ initDatabase();
 app.post('/api/vouchers', async (req, res) => {
   const { voucherNo, date, componentCode, drComponent, drAmount, crAccount, crAmount } = req.body;
 
-  // 1. Double-Entry Structural Integrity Verification[cite: 1]
+  // 1. Double-Entry Structural Integrity Verification
   const balanceDelta = parseFloat(drAmount) - parseFloat(crAmount);
   if (Math.abs(balanceDelta) !== 0) {
     return res.status(400).json({
@@ -78,7 +79,7 @@ app.post('/api/vouchers', async (req, res) => {
   const maxLimit = BUDGET_ALLOCATIONS[selectedComponent] || 15000000.00;
 
   try {
-    // 2. Real-Time Aggregate Spent Query execution across immutable/confirmed lines[cite: 1]
+    // 2. Real-Time Aggregate Spent Query execution across immutable/confirmed lines
     const spentQuery = `
       SELECT COALESCE(SUM(dr_amount), 0) as total_spent 
       FROM vouchers 
@@ -94,7 +95,7 @@ app.post('/api/vouchers', async (req, res) => {
       });
     }
 
-    // 3. Database Persistent Persistence State Insertion (UUID Engine standard)[cite: 1]
+    // 3. Database Persistent Persistence State Insertion (UUID Engine standard)
     const insertQuery = `
       INSERT INTO vouchers (uuid, voucher_no, date, component_code, dr_component, dr_amount, cr_account, cr_amount, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -109,12 +110,11 @@ app.post('/api/vouchers', async (req, res) => {
       parseFloat(drAmount),
       crAccount || "Kenya CBK Designated Account",
       parseFloat(crAmount),
-      "PENDING_QUEUE" // Unconfirmed raw voucher state[cite: 1]
+      "PENDING_QUEUE" // Unconfirmed raw voucher state
     ];
 
     const result = await pool.query(insertQuery, values);
     
-    // Format response payload to match legacy state keys mapping cleanly into React
     const record = {
       uuid: result.rows[0].uuid,
       voucherNo: result.rows[0].voucher_no,
@@ -158,7 +158,7 @@ app.get('/api/vouchers', async (req, res) => {
 });
 
 // =========================================================================
-// MODULE 2 & LAB 2: IPFS CRYPTOGRAPHIC DATA STORAGE BINDING UPDATE[cite: 1]
+// MODULE 2 & LAB 2: IPFS CRYPTOGRAPHIC DATA STORAGE BINDING UPDATE
 // =========================================================================
 app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
   const { uuid } = req.params;
@@ -180,7 +180,7 @@ app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
       WHERE uuid = $3
       RETURNING *
     `;
-    const result = await pool.query(updateQuery, [computedHash, digitalSignature, uuid]);
+    await pool.query(updateQuery, [computedHash, digitalSignature, uuid]);
 
     res.json({
       message: "Attached & Signed",
@@ -193,7 +193,7 @@ app.post('/api/vouchers/:uuid/anchor', async (req, res) => {
 });
 
 // =========================================================================
-// MODULE 3 & LAB 3: REAL-TIME LEDGER ANALYTICS & SOE EXTRACTION[cite: 1]
+// MODULE 3 & LAB 3: REAL-TIME LEDGER ANALYTICS & SOE EXTRACTION
 // =========================================================================
 app.get('/api/reports/soe', async (req, res) => {
   const { startDate, endDate } = req.query;
@@ -216,7 +216,7 @@ app.get('/api/reports/soe', async (req, res) => {
       date: row.date.toISOString().split('T')[0],
       componentCode: row.component_code,
       drComponent: row.dr_component,
-      drAmount: Number.parseFloat(row.dr_amount),
+      drAmount: parseFloat(row.dr_amount),
       status: row.status
     }));
 

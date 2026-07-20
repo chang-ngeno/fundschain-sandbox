@@ -1,49 +1,54 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from 'react';
 
 export default function App() {
+  // Navigation & Sub-Menu States matching TaskList & Manual Hierarchy
+  const [currentView, setCurrentView] = useState('new-voucher'); 
+  const [expandedMenus, setExpandedMenus] = useState({
+    voucherMgmt: true,
+    analyticsReporting: true
+  });
+
   // Core Operational States
   const [vouchers, setVouchers] = useState([]);
   const [reportRecords, setReportRecords] = useState([]);
-  const [activeTab, setActiveTab] = useState("labs"); // Sandbox navigation trigger
   const [systemAlert, setSystemAlert] = useState(null);
 
-  // Form State Configurations
+  // Form State Configurations (Lab 1 Context)
   const [form, setForm] = useState({
-    voucherNo: "NAVCP-V-091",
-    date: new Date().toISOString().split("T")[0],
-    componentCode: "COMP-02",
-    drComponent: "Component 2.1 (Agricultural Inputs)",
-    drAmount: "150000",
-    crAccount: "Kenya CBK Designated Account",
-    crAmount: "150000",
+    voucherNo: 'NAVCP-V-091',
+    date: new Date().toISOString().split('T')[0],
+    componentCode: 'COMP-02',
+    drComponent: 'Component 2.1 (Agricultural Inputs)',
+    drAmount: '150000',
+    crAccount: 'Kenya CBK Designated Account',
+    crAmount: '150000'
   });
 
-  // Report Params State
+  // Report Params State (Lab 3 Context)
   const [reportParams, setReportParams] = useState({
-    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-      .toISOString()
-      .split("T")[0],
-    endDate: new Date().toISOString().split("T")[0],
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0]
   });
 
-  // Track Lab 2 Selection Data Hook
-  const [selectedVoucherUuid, setSelectedVoucherUuid] = useState("");
-  const [uploadedFileName, setUploadedFileName] = useState("");
-  const [observedHash, setObservedHash] = useState("");
+  // Lab 2 State Hooks
+  const [selectedVoucherUuid, setSelectedVoucherUuid] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
+  const [observedHash, setObservedHash] = useState('');
 
   useEffect(() => {
     refreshLedgerData();
   }, []);
 
   const refreshLedgerData = () => {
-    fetch("http://localhost:5000/api/vouchers")
-      .then((res) => res.json())
-      .then((data) => {
+    fetch('http://localhost:5000/api/vouchers')
+      .then(res => res.json())
+      .then(data => {
         setVouchers(data);
         if (data.length > 0 && !selectedVoucherUuid) {
-          setSelectedVoucherUuid(data[data.length - 1].uuid);
+          setSelectedVoucherUuid(data[0].uuid);
         }
-      });
+      })
+      .catch(() => setSystemAlert({ type: 'danger', message: 'Database connectivity error.' }));
   };
 
   // HANDS-ON LAB 1 EXECUTION HANDLER
@@ -51,598 +56,443 @@ export default function App() {
     e.preventDefault();
     setSystemAlert(null);
 
-    fetch("http://localhost:5000/api/vouchers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+    fetch('http://localhost:5000/api/vouchers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form)
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          setSystemAlert({
-            type: "danger",
-            message: data.message,
-            code: data.errorCode,
-          });
-        } else {
-          setSystemAlert({
-            type: "success",
-            message:
-              "Voucher validation successful. Queued for Ledger verification.",
-          });
-          refreshLedgerData();
-        }
-      })
-      .catch(() =>
-        setSystemAlert({
-          type: "danger",
-          message:
-            "Network connectivity fault linked to local container API core.",
-        }),
-      );
+    .then(async (res) => {
+      const data = await res.json();
+      if (!res.ok) {
+        setSystemAlert({ type: 'danger', message: data.message, code: data.errorCode });
+      } else {
+        setSystemAlert({ type: 'success', message: 'Voucher validation successful. Queued for Ledger verification.' });
+        refreshLedgerData();
+        setCurrentView('pending-queue'); // Automatically route to queue to check entry
+      }
+    })
+    .catch(() => setSystemAlert({ type: 'danger', message: 'Failed to write record to service.' }));
   };
 
   // HANDS-ON LAB 2 EXECUTION HANDLER
   const handleAnchorExecution = () => {
-    if (!selectedVoucherUuid) return;
+    if (!selectedVoucherUuid || !uploadedFileName) return;
     setSystemAlert(null);
 
     fetch(`http://localhost:5000/api/vouchers/${selectedVoucherUuid}/anchor`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        fileName: uploadedFileName || "NAVCP_Supplier_Invoice.pdf",
-      }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName: uploadedFileName })
     })
-      .then((res) => res.json())
-      .then((data) => {
-        setObservedHash(data.ipfsHash);
-        setSystemAlert({
-          type: "success",
-          message: `Status update resolved: ${data.message}. Cryptographic Block sealed.`,
-        });
-        refreshLedgerData();
-      });
+    .then(res => res.json())
+    .then(data => {
+      setObservedHash(data.ipfsHash);
+      setSystemAlert({ type: 'success', message: `Status update resolved: ${data.message}. Cryptographic Block sealed.` });
+      refreshLedgerData();
+    });
   };
 
   // HANDS-ON LAB 3 EXECUTION HANDLER
   const handleFetchLedgerReport = () => {
-    fetch(
-      `http://localhost:5000/api/reports/soe?startDate=${reportParams.startDate}&endDate=${reportParams.endDate}`,
-    )
-      .then((res) => res.json())
-      .then((data) => {
+    fetch(`http://localhost:5000/api/reports/soe?startDate=${reportParams.startDate}&endDate=${reportParams.endDate}`)
+      .then(res => res.json())
+      .then(data => {
         setReportRecords(data.records);
-        setSystemAlert({
-          type: "success",
-          message: `Real-time query complete. Block records matching timeline compiled.`,
-        });
+        setSystemAlert({ type: 'success', message: 'Real-time query complete. Block records matching timeline compiled.' });
       });
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
-      {/* HEADER MANUAL BLOCK BAR */}
-      <header className="bg-slate-900 border-b-4 border-emerald-500 text-white p-6 shadow-md">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <span className="bg-emerald-600 text-white text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded">
-              Staging Sandbox V1.1
-            </span>
-            <h1 className="text-2xl font-bold tracking-tight mt-1">
-              FundsChain Interactive Training Simulator
-            </h1>
-            <p className="text-slate-400 text-sm mt-0.5">
-              National Agricultural Value Chain Project (NAVCP) — Republic of
-              Kenya
-            </p>
-          </div>
-          <div className="bg-slate-800/80 p-3 rounded border border-slate-700 text-xs font-mono space-y-1">
-            <div>
-              <strong className="text-slate-400">ID MAPPING TARGET:</strong>{" "}
-              UUID Engine
-            </div>
-            <div>
-              <strong className="text-slate-400">BASE CURRENCY:</strong> KES
-              (Shilling)
-            </div>
-          </div>
-        </div>
-      </header>
+  const toggleMenu = (menuKey) => {
+    setExpandedMenus(prev => ({ ...prev, [menuKey]: !prev[menuKey] }));
+  };
 
-      <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-6">
-        {/* INTERACTIVE ALERTS AND NOTIFICATION CONTAINER */}
-        {systemAlert && (
-          <div
-            className={`p-4 rounded-lg border shadow-sm transition-all ${
-              systemAlert.type === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-                : "bg-rose-50 border-rose-200 text-rose-900"
-            }`}
-          >
+  return (
+    <div className="flex min-h-screen bg-slate-50 font-sans text-slate-800">
+      
+      {/* ========================================================================= */}
+      {/* SIDEBAR NAVIGATION MANIPULATION BAR (Matches Dark Slate Aesthetic) */}
+      {/* ========================================================================= */}
+      <aside className="w-80 bg-[#2d3748] text-[#f7fafc] flex flex-col justify-between shadow-xl border-r border-slate-700 font-mono select-none">
+        <div className="p-5 space-y-6">
+          {/* Main Module Branding Title */}
+          <div className="border-b border-slate-600 pb-4">
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-sm uppercase">
-                {systemAlert.type === "success"
-                  ? "[SUCCESS]"
-                  : "[SYSTEM ERROR ALERT]"}
-              </span>
-              {systemAlert.code && (
-                <span className="bg-rose-200 text-rose-900 text-xs font-mono px-1.5 py-0.5 rounded">
-                  {systemAlert.code}
-                </span>
+              <span className="bg-emerald-500 text-slate-900 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">NAVCP</span>
+              <span className="text-sm font-bold tracking-wider text-emerald-400">FundsChain Node</span>
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1 uppercase">Staging Core Terminal</p>
+          </div>
+
+          {/* Nav Links Stack */}
+          <nav className="space-y-2 text-sm">
+            
+            {/* VOUCHER MANAGEMENT ACCORDION PARENT */}
+            <div>
+              <div 
+                onClick={() => toggleMenu('voucherMgmt')}
+                className="flex items-center justify-between p-2.5 rounded hover:bg-slate-700/50 cursor-pointer transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-amber-400 text-base">📁</span>
+                  <span className="font-semibold tracking-wide text-slate-200">Voucher Management</span>
+                </div>
+                <span className="text-xs text-slate-400">{expandedMenus.voucherMgmt ? '▼' : '▶'}</span>
+              </div>
+              
+              {expandedMenus.voucherMgmt && (
+                <div className="pl-6 mt-1 space-y-1 border-l-2 border-slate-600/40 ml-4">
+                  <div 
+                    onClick={() => setCurrentView('new-voucher')}
+                    className={`flex items-center space-x-2 p-2 rounded text-xs cursor-pointer transition-all ${
+                      currentView === 'new-voucher' 
+                        ? 'bg-emerald-500 text-slate-900 font-bold shadow-sm' 
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span>✦</span>
+                    <span>New Voucher</span>
+                  </div>
+                  
+                  <div 
+                    onClick={() => setCurrentView('pending-queue')}
+                    className={`flex items-center space-x-2 p-2 rounded text-xs cursor-pointer transition-all ${
+                      currentView === 'pending-queue' 
+                        ? 'bg-emerald-500 text-slate-900 font-bold shadow-sm' 
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span>✦</span>
+                    <span>Pending Queue</span>
+                  </div>
+                </div>
               )}
             </div>
-            <p className="text-sm mt-1 font-medium">{systemAlert.message}</p>
-          </div>
-        )}
 
-        {/* WORKSPACE NAVIGATION CONTROLS */}
-        <div className="flex border-b border-slate-200 bg-white rounded-t-xl shadow-sm overflow-hidden">
-          <button
-            onClick={() => setActiveTab("labs")}
-            className={`flex-1 py-4 px-6 text-center text-sm font-semibold border-b-2 transition-all ${activeTab === "labs" ? "border-emerald-600 text-emerald-600 bg-emerald-50/40" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"}`}
-          >
-            🔬 Hands-On Action Labs Sandbox
-          </button>
-          <button
-            onClick={() => setActiveTab("ledger")}
-            className={`flex-1 py-4 px-6 text-center text-sm font-semibold border-b-2 transition-all ${activeTab === "ledger" ? "border-emerald-600 text-emerald-600 bg-emerald-50/40" : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"}`}
-          >
-            ⛓️ Live Ledger State Watcher ({vouchers.length})
-          </button>
+            {/* SUITEANALYTICS & REPORTING ACCORDION PARENT */}
+            <div>
+              <div 
+                onClick={() => toggleMenu('analyticsReporting')}
+                className="flex items-center justify-between p-2.5 rounded hover:bg-slate-700/50 cursor-pointer transition-colors"
+              >
+                <div className="flex items-center space-x-3">
+                  <span className="text-amber-400 text-base">📁</span>
+                  <span className="font-semibold tracking-wide text-slate-200">SuiteAnalytics & Reporting</span>
+                </div>
+                <span className="text-xs text-slate-400">{expandedMenus.analyticsReporting ? '▼' : '▶'}</span>
+              </div>
+
+              {expandedMenus.analyticsReporting && (
+                <div className="pl-6 mt-1 space-y-1 border-l-2 border-slate-600/40 ml-4">
+                  <div className="p-2 text-slate-400 font-bold text-[11px] uppercase tracking-wider select-none">
+                    🗂️ Reporting
+                  </div>
+                  <div 
+                    onClick={() => setCurrentView('statement-expenditure')}
+                    className={`flex items-center space-x-2 p-2 rounded text-xs cursor-pointer transition-all pl-4 ${
+                      currentView === 'statement-expenditure' 
+                        ? 'bg-emerald-500 text-slate-900 font-bold shadow-sm' 
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/30'
+                    }`}
+                  >
+                    <span>🔹</span>
+                    <span>Statement of Expenditure</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+          </nav>
         </div>
 
-        {/* COMPONENT TAB CONDITIONAL DISPLAY ENGINE */}
-        {activeTab === "labs" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* LAB 1 WIDGET CONTAINER */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <h2 className="font-bold text-slate-900 text-base uppercase tracking-wide">
-                    Lab 1: Voucher Entry
-                  </h2>
-                  <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                    Module 1
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Goal: Record transaction matching <strong>NAVCP-V-091</strong>
-                  . Test balanced double-entry rules and real-time budget
-                  thresholds.
-                </p>
+        {/* System Baseline Technical Footprint Parameters */}
+        <div className="p-4 bg-slate-800/60 border-t border-slate-700 text-[10px] space-y-1 text-slate-400 font-mono">
+          <div><strong className="text-slate-500">ENGINE:</strong> UUID Engine v1.1</div>
+          <div><strong className="text-slate-500">BASE CURRENCY:</strong> KES (Shilling)</div>
+        </div>
+      </aside>
 
-                <form className="space-y-3 mt-4 text-xs">
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">
-                      Voucher Identifier String
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full border p-2 rounded font-mono bg-slate-50"
-                      value={form.voucherNo}
-                      onChange={(e) =>
-                        setForm({ ...form, voucherNo: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-slate-600 font-bold mb-1">
-                        Component Selector
-                      </label>
-                      <select
-                        className="w-full border p-2 rounded bg-white"
-                        value={form.componentCode}
-                        onChange={(e) =>
-                          setForm({ ...form, componentCode: e.target.value })
-                        }
-                      >
-                        <option value="COMP-02">COMP-02 (Agri Finance)</option>
-                        <option value="COMP-01">
-                          COMP-01 (Infrastructure Support)
-                        </option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-slate-600 font-bold mb-1">
-                        Transaction Date
-                      </label>
-                      <input
-                        type="date"
-                        className="w-full border p-2 rounded"
-                        value={form.date}
-                        onChange={(e) =>
-                          setForm({ ...form, date: e.target.value })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="border border-slate-100 p-2.5 rounded bg-slate-50/50 space-y-2">
-                    <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">
-                      Double-Entry Account Distribution Matrix
-                    </span>
-                    <div>
-                      <label className="block text-slate-500 font-medium mb-0.5">
-                        DR Allocation Line Item (Debit)
-                      </label>
-                      <input
-                        type="text"
-                        className="w-full border p-1.5 rounded bg-white text-slate-700"
-                        value={form.drComponent}
-                        readOnly
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-0.5">
-                          Debit Amount (KES)
-                        </label>
-                        <input
-                          type="number"
-                          className="w-full border p-1.5 rounded font-bold text-slate-900"
-                          value={form.drAmount}
-                          onChange={(e) =>
-                            setForm({ ...form, drAmount: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-slate-500 font-medium mb-0.5">
-                          Credit Amount (KES)
-                        </label>
-                        <input
-                          type="number"
-                          className="w-full border p-1.5 rounded font-bold text-slate-900"
-                          value={form.crAmount}
-                          onChange={(e) =>
-                            setForm({ ...form, crAmount: e.target.value })
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </form>
+      {/* ========================================================================= */}
+      {/* MAIN CONTENT VIEWPORT EXECUTION BLOCK AREA */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex flex-col min-w-0">
+        
+        {/* TOP SYSTEM CONSOLE METRICS HEADBOARD */}
+        <header className="bg-white border-b border-slate-200 p-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4 shadow-sm">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">National Agricultural Value Chain Project Sandbox</h1>
+            <p className="text-slate-500 text-xs mt-0.5">Republic of Kenya — Project Implementation Unit (PIU) Accountant Onboarding Simulator[cite: 1]</p>
+          </div>
+          <button 
+            onClick={refreshLedgerData}
+            className="text-xs font-mono font-bold text-emerald-600 hover:bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg transition-colors self-start"
+          >
+            🔄 Sync Ledger State Channels
+          </button>
+        </header>
+
+        {/* APP CORE NOTIFICATION BOX RUNNER */}
+        <div className="p-6 pb-0 max-w-6xl w-full mx-auto">
+          {systemAlert && (
+            <div className={`p-4 rounded-lg border shadow-sm transition-all ${
+              systemAlert.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-xs font-mono uppercase">{systemAlert.type === 'success' ? '[SUCCESS]' : '[SYSTEM STATE CONFLICT]'}</span>
+                {systemAlert.code && <span className="bg-rose-200 text-rose-900 text-[10px] font-mono px-1.5 py-0.5 rounded">{systemAlert.code}</span>}
               </div>
-              <button
-                onClick={handleVoucherSubmit}
-                className="w-full mt-4 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 px-4 rounded-lg transition-colors text-xs uppercase tracking-wider shadow-sm"
-              >
-                Validate & Queue Voucher
-              </button>
+              <p className="text-xs mt-1 font-semibold">{systemAlert.message}</p>
             </div>
+          )}
+        </div>
 
-            {/* LAB 2 WIDGET CONTAINER
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <h2 className="font-bold text-slate-900 text-base uppercase tracking-wide">Lab 2: IPFS Anchoring</h2>
-                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">Module 2</span>
+        {/* ACTIVE WORKSPACE SUB-VIEW DISPATCHER */}
+        <main className="flex-1 p-6 max-w-6xl w-full mx-auto">
+          
+          {/* VIEW 1: NEW VOUCHER FORM (Lab 1 Context) */}
+          {currentView === 'new-voucher' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm max-w-2xl overflow-hidden">
+              <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <div>
+                  <h2 className="font-bold text-slate-900 text-sm uppercase tracking-wide">Module 1: Voucher Capturing[cite: 1]</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Hands-On Lab 1: Record payment of KES 150,000 to agricultural supplier[cite: 1].</p>
                 </div>
-                <p className="text-xs text-slate-500 mt-2">Goal: Attach dynamic metadata supporting files and lock cryptographic hashes to an active ledger transaction node sequence.</p>
-                
-                <div className="space-y-3 mt-4 text-xs">
+              </div>
+              <form onSubmit={handleVoucherSubmit} className="p-6 space-y-4 text-xs">
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-slate-600 font-bold mb-1">Target Active Voucher (UUID Standard)</label>
-                    <select className="w-full border p-2 rounded font-mono bg-white" value={selectedVoucherUuid} onChange={e => setSelectedVoucherUuid(e.target.value)}>
-                      <option value="">-- Select Active Pending Target Node --</option>
+                    <label className="block text-slate-600 font-bold mb-1">Voucher Identifier String</label>
+                    <input type="text" className="w-full border p-2 rounded font-mono bg-slate-50" value={form.voucherNo} onChange={e => setForm({...form, voucherNo: e.target.value})} required />
+                  </div>
+                  <div>
+                    <label className="block text-slate-600 font-bold mb-1">Transaction Date</label>
+                    <input type="date" className="w-full border p-2 rounded" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1">Component Selector</label>
+                  <select className="w-full border p-2 rounded bg-white" value={form.componentCode} onChange={e => setForm({...form, componentCode: e.target.value})}>
+                    <option value="COMP-02">COMP-02 (Agricultural Value Chain Finance)</option>
+                    <option value="COMP-01">COMP-01 (Value Chain Infrastructure Support)</option>
+                  </select>
+                </div>
+
+                <div className="border border-slate-200 p-4 rounded-lg bg-slate-50/70 space-y-3">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Double-Entry Distribution Allocation Matrix[cite: 1]</span>
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-0.5">DR Allocation Line Item (Debit Expense Branch)</label>
+                    <input type="text" className="w-full border p-2 rounded bg-white text-slate-700" value={form.drComponent} readOnly />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-0.5">Debit Amount (KES)</label>
+                      <input type="number" className="w-full border p-2 rounded font-bold text-slate-900" value={form.drAmount} onChange={e => setForm({...form, drAmount: e.target.value})} required />
+                    </div>
+                    <div>
+                      <label className="block text-slate-500 font-medium mb-0.5">Credit Amount (KES)</label>
+                      <input type="number" className="w-full border p-2 rounded font-bold text-slate-900" value={form.crAmount} onChange={e => setForm({...form, crAmount: e.target.value})} required />
+                    </div>
+                  </div>
+                </div>
+
+                <button type="submit" className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-3 px-4 rounded-lg transition-colors uppercase tracking-wider text-xs">
+                  Validate & Queue State Write[cite: 1]
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* VIEW 2: PENDING QUEUE & IPFS ANCHORING ENGINE (Lab 2 Context) */}
+          {currentView === 'pending-queue' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              
+              {/* Left Side: Ledger Master Registry Table list */}
+              <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+                <div className="p-4 bg-slate-50 border-b border-slate-200">
+                  <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">Live Verification Block Ledger</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">Select a ledger node below to anchor supporting documentation artifacts[cite: 1].</p>
+                </div>
+                <div className="overflow-x-auto text-[11px] flex-1">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-100 text-slate-500 border-b border-slate-200 uppercase text-[9px] tracking-wider">
+                        <th className="p-3">Voucher No</th>
+                        <th className="p-3">Component</th>
+                        <th className="p-3 text-right">Debit (KES)</th>
+                        <th className="p-3 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
                       {vouchers.map(v => (
-                        <option key={v.uuid} value={v.uuid}>{v.voucherNo} [{v.uuid.substring(0,8)}...]</option>
+                        <tr 
+                          key={v.uuid} 
+                          onClick={() => setSelectedVoucherUuid(v.uuid)}
+                          className={`cursor-pointer transition-colors ${selectedVoucherUuid === v.uuid ? 'bg-emerald-50/60 font-semibold' : 'hover:bg-slate-50'}`}
+                        >
+                          <td className="p-3 text-slate-900">{v.voucherNo}</td>
+                          <td className="p-3 font-mono text-slate-500">{v.componentCode}</td>
+                          <td className="p-3 text-right font-bold">{v.drAmount.toLocaleString()}.00</td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${v.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800 animate-pulse'}`}>
+                              {v.status}
+                            </span>
+                          </td>
+                        </tr>
                       ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">File Upload Name</label>
-                    <input type="text" placeholder="NAVCP_Supplier_Invoice.pdf" className="w-full border p-2 rounded" value={uploadedFileName} onChange={e => setUploadedFileName(e.target.value)} />
-                  </div>
-                  {observedHash && (
-                    <div className="p-3 bg-blue-50 border border-blue-100 rounded font-mono text-[11px] space-y-1">
-                      <div className="text-blue-800 font-bold uppercase tracking-wider text-[9px]">Calculated Fingerprint Hash Target Generated:</div>
-                      <div className="text-blue-900 break-all">{observedHash}</div>
-                      <div className="text-[10px] text-blue-700 font-sans mt-1">
-                        🔑 <strong>First 6 Characters:</strong> <span className="bg-blue-200 font-bold px-1 py-0.5 rounded">{observedHash.substring(0, 6)}</span> (Record this for your activity logs)
-                      </div>
-                    </div>
-                  )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-              <button onClick={handleAnchorExecution} disabled={!selectedVoucherUuid} className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-lg transition-colors text-xs uppercase tracking-wider shadow-sm">
-                Anchor to Ledger
-              </button>
-            </div> */}
-            {/* LAB 2 WIDGET CONTAINER */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <h2 className="font-bold text-slate-900 text-base uppercase tracking-wide">
-                    Lab 2: IPFS Anchoring
-                  </h2>
-                  <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
-                    Module 2
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Goal: Attach dynamic metadata supporting files and lock
-                  cryptographic hashes to an active ledger transaction node
-                  sequence.
-                </p>
 
-                <div className="space-y-3 mt-4 text-xs">
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">
-                      Target Active Voucher (UUID Standard)
-                    </label>
-                    <select
-                      className="w-full border p-2 rounded font-mono bg-white"
-                      value={selectedVoucherUuid}
-                      onChange={(e) => setSelectedVoucherUuid(e.target.value)}
-                    >
-                      <option value="">
-                        -- Select Active Pending Target Node --
-                      </option>
-                      {vouchers.map((v) => (
-                        <option key={v.uuid} value={v.uuid}>
-                          {v.voucherNo} [{v.uuid.substring(0, 8)}...]
-                        </option>
-                      ))}
-                    </select>
+              {/* Right Side: Interactive IPFS Cryptographic Anchor drop zone[cite: 1] */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div className="space-y-4">
+                  <div className="border-b border-slate-100 pb-2">
+                    <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">Lab 2: Supporting Document Anchor[cite: 1]</h3>
+                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 font-bold px-1.5 py-0.5 rounded mt-1 inline-block">Module 2[cite: 1]</span>
                   </div>
 
-                  {/* NEW SIMULATED UPLOAD DRAG & DROP AREA */}
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">
-                      Supporting Documentation Upload (Max 10MB)
-                    </label>
-                    <div
-                      className="border-2 border-dashed border-slate-300 hover:border-blue-400 bg-slate-50/50 p-4 rounded-lg text-center cursor-pointer transition-colors relative"
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                          setUploadedFileName(e.dataTransfer.files[0].name);
-                        }
-                      }}
-                    >
-                      <input
-                        type="file"
-                        id="file-upload"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                        onChange={(e) => {
-                          if (e.target.files && e.target.files[0]) {
-                            setUploadedFileName(e.target.files[0].name);
-                          }
+                  {/* Drag and Drop Container Workspace Node */}
+                  <div className="text-xs space-y-3">
+                    <div>
+                      <label className="block text-slate-500 font-bold mb-1">Target Node Key</label>
+                      <input type="text" className="w-full border p-2 rounded font-mono bg-slate-100 text-slate-600 truncate" value={selectedVoucherUuid || 'No Node Selected'} readOnly />
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-600 font-bold mb-1">Drag Scan Documents (Max 10MB)[cite: 1]</label>
+                      <div 
+                        className="border-2 border-dashed border-slate-300 hover:border-emerald-400 bg-slate-50 p-4 rounded-lg text-center cursor-pointer transition-colors relative"
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={e => {
+                          e.preventDefault();
+                          if (e.dataTransfer.files && e.dataTransfer.files[0]) setUploadedFileName(e.dataTransfer.files[0].name);
                         }}
-                      />
-                      <div className="space-y-1">
-                        <span className="text-lg block">📄</span>
-                        <span className="text-blue-600 font-semibold block">
-                          Click to browse
-                        </span>
-                        <span className="text-slate-400 text-[10px] block">
-                          or drag and drop invoice, approval, or receipt scans
-                          here[cite: 1]
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* FILE STATUS PREVIEW */}
-                  {uploadedFileName && (
-                    <div className="flex items-center justify-between p-2 bg-emerald-50 border border-emerald-100 rounded text-emerald-800 font-medium">
-                      <span className="truncate max-w-[200px]">
-                        📋 Selected: {uploadedFileName}
-                      </span>
-                      <span className="text-[10px] bg-emerald-200 px-1.5 py-0.5 rounded text-emerald-900 font-bold">
-                        READY
-                      </span>
-                    </div>
-                  )}
-
-                  {observedHash && (
-                    <div className="p-3 bg-blue-50 border border-blue-100 rounded font-mono text-[11px] space-y-1">
-                      <div className="text-blue-800 font-bold uppercase tracking-wider text-[9px]">
-                        Calculated Fingerprint Hash Target Generated[cite: 1]:
-                      </div>
-                      <div className="text-blue-900 break-all">
-                        {observedHash}
-                      </div>
-                      <div className="text-[10px] text-blue-700 font-sans mt-1">
-                        🔑 <strong>First 6 Characters:</strong>{" "}
-                        <span className="bg-blue-200 font-bold px-1 py-0.5 rounded">
-                          {observedHash.substring(0, 6)}
-                        </span>{" "}
-                        (Record this for your activity logs)[cite: 1]
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={handleAnchorExecution}
-                disabled={!selectedVoucherUuid || !uploadedFileName}
-                className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-lg transition-colors text-xs uppercase tracking-wider shadow-sm"
-              >
-                Anchor to Ledger[cite: 1]
-              </button>
-            </div>
-
-            {/* LAB 3 WIDGET CONTAINER */}
-            <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-4 flex flex-col justify-between">
-              <div>
-                <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-                  <h2 className="font-bold text-slate-900 text-base uppercase tracking-wide">
-                    Lab 3: SOE Extraction
-                  </h2>
-                  <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-                    Module 3
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  Goal: Execute immediate live ledger data queries to compile
-                  Statements of Expenditure (SOE) without manual accounting
-                  reconciliations.
-                </p>
-
-                <div className="grid grid-cols-1 gap-3 mt-4 text-xs">
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">
-                      Start Date Context Window
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border p-2 rounded"
-                      value={reportParams.startDate}
-                      onChange={(e) =>
-                        setReportParams({
-                          ...reportParams,
-                          startDate: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-slate-600 font-bold mb-1">
-                      End Date Context Window
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border p-2 rounded"
-                      value={reportParams.endDate}
-                      onChange={(e) =>
-                        setReportParams({
-                          ...reportParams,
-                          endDate: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-
-                {reportRecords.length > 0 && (
-                  <div className="mt-4 border border-purple-100 rounded-lg overflow-hidden text-[11px]">
-                    <div className="bg-purple-50 px-3 py-2 text-purple-900 font-bold border-b border-purple-100 flex justify-between items-center">
-                      <span>📄 Statement of Expenditure Export</span>
-                      <span className="bg-purple-200 text-purple-800 font-mono px-1 py-0.5 rounded text-[9px]">
-                        LIVE COPIES
-                      </span>
-                    </div>
-                    <div className="p-2 bg-slate-50 space-y-1 font-mono max-h-24 overflow-y-auto">
-                      {reportRecords.map((r) => (
-                        <div
-                          key={r.uuid}
-                          className="text-slate-600 border-b border-slate-200 pb-1 last:border-0"
-                        >
-                          <strong>{r.voucherNo}</strong> — KES{" "}
-                          {r.drAmount.toLocaleString()} ({r.status})
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <button
-                onClick={handleFetchLedgerReport}
-                className="w-full mt-4 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-4 rounded-lg transition-colors text-xs uppercase tracking-wider shadow-sm"
-              >
-                Fetch Ledger Records
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* CORE LEDGER MONITOR COMPONENT WATCHER SCREEN */
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-slate-100 bg-slate-50/70 flex justify-between items-center">
-              <div>
-                <h3 className="font-bold text-slate-900 text-sm uppercase tracking-wide">
-                  Real-Time State Block Chain Registry
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Immutable audit line records containing verified double-entry
-                  balances and system cryptographic proofs.
-                </p>
-              </div>
-              <button
-                onClick={refreshLedgerData}
-                className="text-xs font-bold text-emerald-600 hover:text-emerald-700 bg-white border border-slate-200 px-3 py-1.5 rounded shadow-sm transition-colors"
-              >
-                🔄 Sync State Nodes
-              </button>
-            </div>
-            <div className="overflow-x-auto text-xs">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-600 uppercase text-[10px] tracking-wider border-b border-slate-200">
-                    <th className="p-4">Voucher No</th>
-                    <th className="p-4">Target Node UUID</th>
-                    <th className="p-4">Date</th>
-                    <th className="p-4 text-right">Debit Distribution (KES)</th>
-                    <th className="p-4 text-right">
-                      Credit Distribution (KES)
-                    </th>
-                    <th className="p-4 text-center">System Status Flags</th>
-                    <th className="p-4">IPFS Fingerprint Seal</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {vouchers.map((v) => (
-                    <tr
-                      key={v.uuid}
-                      className="hover:bg-slate-50/80 transition-colors"
-                    >
-                      <td className="p-4 font-bold text-slate-900">
-                        {v.voucherNo}
-                      </td>
-                      <td className="p-4 font-mono text-slate-500 text-[11px]">
-                        {v.uuid}
-                      </td>
-                      <td className="p-4 whitespace-nowrap">{v.date}</td>
-                      <td className="p-4 text-right font-bold text-emerald-700">
-                        {v.drAmount.toLocaleString()}.00
-                      </td>
-                      <td className="p-4 text-right font-bold text-indigo-700">
-                        {v.crAmount.toLocaleString()}.00
-                      </td>
-                      <td className="p-4 text-center">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            v.status === "CONFIRMED"
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-amber-100 text-amber-800 animate-pulse"
-                          }`}
-                        >
-                          {v.status}
-                        </span>
-                      </td>
-                      <td className="p-4 font-mono text-[11px] max-w-[150px] truncate">
-                        {v.ipfsHash ? (
-                          <span className="text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100">
-                            {v.ipfsHash}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 italic">
-                            Unanchored Payload
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {vouchers.length === 0 && (
-                    <tr>
-                      <td
-                        colSpan="7"
-                        className="p-8 text-center text-slate-400 italic bg-slate-50/30"
                       >
-                        No active blocks identified on the current sandbox
-                        staging ledger channel context network.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                        <input type="file" className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onChange={e => {
+                          if (e.target.files && e.target.files[0]) setUploadedFileName(e.target.files[0].name);
+                        }} />
+                        <span className="text-xl block">📤</span>
+                        <span className="text-emerald-600 font-bold block mt-1 text-[11px]">Choose File Targets</span>
+                        <span className="text-slate-400 text-[9px] block">Drop invoices or approval vouchers here[cite: 1]</span>
+                      </div>
+                    </div>
+
+                    {uploadedFileName && (
+                      <div className="p-2 bg-emerald-50 border border-emerald-200 rounded flex justify-between items-center text-[10px] font-bold text-emerald-800">
+                        <span className="truncate max-w-[150px]">📋 {uploadedFileName}</span>
+                        <span>STAGED</span>
+                      </div>
+                    )}
+
+                    {observedHash && (
+                      <div className="p-2.5 bg-slate-900 text-emerald-400 border border-slate-800 rounded font-mono text-[10px] space-y-1 shadow-inner">
+                        <div className="text-slate-400 font-bold text-[8px] uppercase tracking-wider">IPFS Anchor Hash Tag[cite: 1]:</div>
+                        <div className="break-all">{observedHash}</div>
+                        <div className="text-white text-[9px] pt-1">
+                          🔑 First 6: <span className="bg-slate-700 px-1 py-0.5 rounded font-bold">{observedHash.substring(0,6)}</span>[cite: 1]
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <button 
+                  onClick={handleAnchorExecution}
+                  disabled={!selectedVoucherUuid || !uploadedFileName}
+                  className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:cursor-not-allowed text-white font-bold py-2.5 px-4 rounded-lg transition-colors text-xs uppercase tracking-wider"
+                >
+                  Anchor to Ledger[cite: 1]
+                </button>
+              </div>
+
             </div>
-          </div>
-        )}
-      </main>
+          )}
+
+          {/* VIEW 3: STATEMENT OF EXPENDITURE REPORT ENGINE (Lab 3 Context) */}
+          {currentView === 'statement-expenditure' && (
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden space-y-6 p-6">
+              <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                <div>
+                  <h2 className="font-bold text-slate-900 text-sm uppercase tracking-wide">Module 3: Real-Time Reporting[cite: 1]</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Hands-On Lab 3: Live Statement of Expenditure (SOE) Extraction[cite: 1].</p>
+                </div>
+                <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded border border-purple-100 self-start">Analytical Query Node</span>
+              </div>
+
+              {/* Param Configurations Bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1">Start Date Context Window</label>
+                  <input type="date" className="w-full border p-2 rounded bg-slate-50" value={reportParams.startDate} onChange={e => setReportParams({...reportParams, startDate: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-slate-600 font-bold mb-1">End Date Context Window</label>
+                  <input type="date" className="w-full border p-2 rounded bg-slate-50" value={reportParams.endDate} onChange={e => setReportParams({...reportParams, endDate: e.target.value})} />
+                </div>
+                <div className="flex items-end">
+                  <button 
+                    onClick={handleFetchLedgerReport}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors uppercase tracking-wider text-xs shadow-sm h-9"
+                  >
+                    Fetch Ledger[cite: 1]
+                  </button>
+                </div>
+              </div>
+
+              {/* Compiled Statement View Grid */}
+              {reportRecords.length > 0 && (
+                <div className="border border-purple-100 rounded-xl overflow-hidden shadow-sm text-xs">
+                  <div className="bg-purple-900 text-white p-4 flex justify-between items-center font-mono">
+                    <div>
+                      <h4 className="font-bold tracking-wide">Statement of Expenditure (SOE)[cite: 1]</h4>
+                      <p className="text-[10px] text-purple-200 mt-0.5">Republic of Kenya — National Agricultural Value Chain Project[cite: 1]</p>
+                    </div>
+                    <span className="bg-purple-800 text-purple-200 border border-purple-700 text-[10px] px-2 py-0.5 rounded">VERIFIED BLOCK STATE[cite: 1]</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 border-b border-purple-100 uppercase text-[9px] tracking-wider font-mono">
+                          <th className="p-3">Voucher ID</th>
+                          <th className="p-3">Execution Date</th>
+                          <th className="p-3">Component Allocation Target</th>
+                          <th className="p-3 text-right">Debit Distribution Amount (KES)</th>
+                          <th className="p-3 text-center">Ledger Seal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                        {reportRecords.map(r => (
+                          <tr key={r.uuid} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3 font-bold text-slate-900 font-mono">{r.voucherNo}</td>
+                            <td className="p-3 whitespace-nowrap">{r.date}</td>
+                            <td className="p-3 font-mono text-slate-500">{r.componentCode}</td>
+                            <td className="p-3 text-right font-bold text-slate-900">{r.drAmount.toLocaleString()}.00</td>
+                            <td className="p-3 text-center">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${r.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                                {r.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="bg-slate-50 p-3 border-t border-purple-100 text-right">
+                    <button 
+                      onClick={() => setSystemAlert({ type: 'success', message: 'Signed PDF Document generated containing cryptographic ledger stamp validation.' })}
+                      className="bg-slate-900 hover:bg-slate-800 text-white font-mono font-bold text-[10px] px-3 py-1.5 rounded uppercase tracking-wider shadow-sm"
+                    >
+                      Export as Signed PDF[cite: 1]
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+        </main>
+      </div>
     </div>
   );
 }
