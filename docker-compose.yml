@@ -49,5 +49,9 @@ services:
       - VITE_API_URL=http://localhost:${PORT_CORE_API}
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN}
 
+networks:
+  default:
+    name: fundschain-network
+
 volumes:
   pgdata:

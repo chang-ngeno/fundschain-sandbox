@@ -98,7 +98,7 @@ export default function App() {
 
         data.forEach((v) => {
           if (v.status === "CONFIRMED" && baseAwpb[v.componentCode]) {
-            baseAwpb[v.componentCode].utilized += parseFloat(v.drAmount);
+            baseAwpb[v.componentCode].utilized += Number.parseFloat(v.drAmount);
           }
         });
         setAwpbData(baseAwpb);
@@ -621,7 +621,7 @@ export default function App() {
                     <div className="text-right font-mono font-bold text-slate-900">
                       DR KES{" "}
                       {form.drAmount
-                        ? parseFloat(form.drAmount).toLocaleString()
+                        ? Number.parseFloat(form.drAmount).toLocaleString()
                         : "0.00"}
                     </div>
                   </div>
@@ -641,7 +641,7 @@ export default function App() {
                     <div className="text-right font-mono font-bold text-slate-900">
                       CR KES{" "}
                       {form.crAmount
-                        ? parseFloat(form.crAmount).toLocaleString()
+                        ? Number.parseFloat(form.crAmount).toLocaleString()
                         : "0.00"}
                     </div>
                   </div>
