@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 
 export default function App() {
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
   // Navigation & Menu Orchestration
   const [currentView, setCurrentView] = useState("dashboard");
   const [expandedMenus, setExpandedMenus] = useState({
@@ -72,7 +73,7 @@ export default function App() {
 
   // Recalculate AWPB maps dynamically based on finalized system entries
   const refreshLedgerData = () => {
-    fetch("http://localhost:5000/api/vouchers")
+    fetch("${API_BASE_URL}/api/vouchers")
       .then((res) => res.json())
       .then((data) => {
         setVouchers(data);
@@ -121,7 +122,7 @@ export default function App() {
       .then((data) => setVouchers(data));
 
     // Fetch Dashboard Metrics
-    fetch("http://localhost:5000/api/dashboard/metrics")
+    fetch("${API_BASE_URL}/api/dashboard/metrics")
       .then((res) => res.json())
       .then((data) => setAwpbData(data))
       .catch(() => console.error("Failed to sync dashboard state."));
@@ -135,7 +136,7 @@ export default function App() {
   // 3. Update handleAnchorExecution to trigger state refresh
   const handleAnchorExecution = () => {
     if (!selectedVoucherUuid || !uploadedFileName) return;
-    fetch(`http://localhost:5000/api/vouchers/${selectedVoucherUuid}/anchor`, {
+    fetch(`${API_BASE_URL}/api/vouchers/${selectedVoucherUuid}/anchor`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fileName: uploadedFileName }),
@@ -172,7 +173,7 @@ export default function App() {
     e.preventDefault();
     setSystemAlert(null);
 
-    fetch("http://localhost:5000/api/vouchers", {
+    fetch("${API_BASE_URL}/api/vouchers", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
@@ -232,7 +233,7 @@ export default function App() {
 
   const handleFetchLedgerReport = () => {
     fetch(
-      `http://localhost:5000/api/reports/soe?startDate=${reportParams.startDate}&endDate=${reportParams.endDate}`,
+      `${API_BASE_URL}/api/reports/soe?startDate=${reportParams.startDate}&endDate=${reportParams.endDate}`,
     )
       .then((res) => res.json())
       .then((data) => {
