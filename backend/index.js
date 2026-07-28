@@ -19,12 +19,22 @@ app.use(express.json());
 // =========================================================================
 // DATABASE CONNECTION CONFIGURATION (POOL ENGINE)
 // =========================================================================
-const pool = new Pool({
+const pool1 = new Pool({
   host: process.env.DB_HOST || "db",
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || "fundschain_db",
   user: process.env.DB_USER || "postgres",
   password: process.env.DB_PASSWORD || "your_secure_dev_password",
+});
+
+// =========================================================================
+// DATABASE CONNECTION CONFIGURATION (NEON.TECH POSTGRESQL)
+// =========================================================================
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false // Forces node-postgres to initiate an SSL/TLS handshake
+  }
 });
 
 // Staging target balance thresholds based on AWPB benchmarks
