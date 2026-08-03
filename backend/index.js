@@ -7,17 +7,27 @@ const { Pool } = pg;
 const app = express();
 
 const corsOrigins = [
-  process.env.FRONTEND_URL || "http://localhost:5173",
-  process.env.ALLOWED_ORIGIN || "http://localhost:3000",
-  "http://localhost:8080",
-].filter(Boolean);
+  // Primary frontend URL (required for staging/production)
+  process.env.FRONTEND_URL,
+  // Fallback allowed origins
+  process.env.ALLOWED_ORIGIN,
+  // Local development origins (only used if env vars not set)
+  ...(process.env.NODE_ENV !== 'production' 
+    ? ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"] 
+    : []
+  ),
+].filter(Boolean); // Remove undefined/null values
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin || corsOrigins.includes(origin)) {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) {
+        callback(null, true);
+      } else if (corsOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        console.warn(`CORS blocked origin: ${origin}. Allowed: [${corsOrigins.join(', ')}]`);
         callback(new Error("Not allowed by CORS"));
       }
     },
