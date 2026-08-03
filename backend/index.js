@@ -38,16 +38,31 @@ app.use((req, res, next) => {
   next();
 });
 
-// Database Setup
+// Database Setup with Enhanced Connection Management
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false, // Required for Neon on Render
+      },
+      idleTimeoutMillis: 30000, // Clean up idle connections before Neon drops them
+      connectionTimeoutMillis: 5000,
+    })
   : new Pool({
       host: process.env.DB_HOST || "localhost",
       port: process.env.DB_PORT || 5432,
       database: process.env.DB_NAME || "fundschain_db",
       user: process.env.DB_USER || "postgres",
       password: process.env.DB_PASSWORD || "postgres123",
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
     });
+
+// IMPORTANT: Catch idle client errors to prevent process crash
+pool.on("error", (err, client) => {
+  console.error("Unexpected error on idle PostgreSQL client:", err);
+  // Do not crash the process; pg-pool will automatically replace dead clients
+});
 
 const initDatabase = async () => {
   const schemaQuery = `
