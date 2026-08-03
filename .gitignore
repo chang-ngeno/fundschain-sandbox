@@ -207,3 +207,8 @@ $RECYCLE.BIN/
 # Custom rules (everything added below won't be overriden by 'Generate .gitignore File' if you use 'Update' option)
 
 *.ps1
+.env.staging
+FundsChain_Participant_and_Facilitator_Manual_v2.pptx
+FundsChain_Participant_and_Facilitator_Manual.pptx
+generate_fundschain_deck.py
+generate_fundschain_deck_v2.py
