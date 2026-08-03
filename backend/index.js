@@ -6,9 +6,6 @@ import pg from "pg";
 const { Pool } = pg;
 const app = express();
 
-// -----------------------------------------------------------------------------
-// CORS & Middleware Setup
-// -----------------------------------------------------------------------------
 const corsOrigins = [
   process.env.FRONTEND_URL || "http://localhost:5173",
   process.env.ALLOWED_ORIGIN || "http://localhost:3000",
@@ -32,7 +29,7 @@ app.use(
 
 app.use(express.json());
 
-// Sandbox Role Context Middleware
+// Context Middleware
 app.use((req, res, next) => {
   req.sandboxUser = {
     id: req.headers["x-sandbox-user-id"] || "USR-DEFAULT-001",
@@ -41,14 +38,9 @@ app.use((req, res, next) => {
   next();
 });
 
-// -----------------------------------------------------------------------------
-// Database Configuration & Initialization
-// -----------------------------------------------------------------------------
+// Database Setup
 const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    })
+  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
   : new Pool({
       host: process.env.DB_HOST || "localhost",
       port: process.env.DB_PORT || 5432,
@@ -57,21 +49,14 @@ const pool = process.env.DATABASE_URL
       password: process.env.DB_PASSWORD || "postgres123",
     });
 
-const BUDGET_ALLOCATIONS = {
-  "COMP-01": 35000000.0,
-  "COMP-02": 15000000.0,
-  "COMP-03": 10000000.0,
-  "COMP-04": 5000000.0,
-};
-
 const initDatabase = async () => {
-  const createTableQuery = `
+  const schemaQuery = `
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
     CREATE TABLE IF NOT EXISTS vouchers (
       uuid UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
       voucher_no VARCHAR(50) NOT NULL,
-      date DATE NOT NULL,
+      date DATE NOT NULL DEFAULT CURRENT_DATE,
       component_code VARCHAR(20) NOT NULL,
       dr_component TEXT NOT NULL,
       dr_amount NUMERIC(15, 2) NOT NULL,
@@ -121,204 +106,98 @@ const initDatabase = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS audit_logs (
+    CREATE TABLE IF NOT EXISTS documents (
       id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-      action VARCHAR(50) NOT NULL,
-      actor VARCHAR(100) NOT NULL,
-      role VARCHAR(50) NOT NULL,
-      voucher_id UUID,
-      tx_hash VARCHAR(100) NOT NULL,
-      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      doc_ref VARCHAR(50) NOT NULL,
+      title TEXT NOT NULL,
+      type VARCHAR(50) NOT NULL,
+      ipfs_hash VARCHAR(100) NOT NULL,
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `;
+
   try {
-    await pool.query(createTableQuery);
-    console.log("PostgreSQL Ledger Engine Schema initialized successfully.");
+    await pool.query(schemaQuery);
+    console.log("PostgreSQL Ledger Engine Schema (v4.1.1) initialized.");
+
+    // Seed Vouchers if empty
+    const vRes = await pool.query("SELECT COUNT(*) FROM vouchers");
+    if (parseInt(vRes.rows[0].count) === 0) {
+      await pool.query(`
+        INSERT INTO vouchers (voucher_no, date, component_code, dr_component, dr_amount, cr_account, cr_amount, status, created_role)
+        VALUES 
+          ('PAY-2026-0842', '2026-06-19', 'COMP-01', 'Payment to Supplier', 25430000.00, 'CBK Designated Account', 25430000.00, 'APPROVED', 'PROJECT_ACCOUNTANT'),
+          ('PAY-2026-0841', '2026-06-16', 'COMP-02', 'Advance Payment', 15000000.00, 'CBK Designated Account', 15000000.00, 'APPROVED', 'PROJECT_ACCOUNTANT');
+      `);
+    }
+
+    // Seed Contracts if empty
+    const cRes = await pool.query("SELECT COUNT(*) FROM contracts");
+    if (parseInt(cRes.rows[0].count) === 0) {
+      await pool.query(`
+        INSERT INTO contracts (contract_no, title, vendor, amount, status)
+        VALUES 
+          ('COM-2026-0154', 'Solar Water Pump Installation', 'Apex Water Ltd', 78500000.00, 'COMMITTED'),
+          ('COM-2026-0155', 'Irrigation Infra Expansion', 'Greenfield Engineering', 120000000.00, 'COMMITTED');
+      `);
+    }
+
+    // Seed Suppliers if empty
+    const sRes = await pool.query("SELECT COUNT(*) FROM suppliers");
+    if (parseInt(sRes.rows[0].count) === 0) {
+      await pool.query(`
+        INSERT INTO suppliers (supplier_id, name, category, status)
+        VALUES 
+          ('SUP-2026-001', 'Rift Valley Agritech', 'Equipment Supply', 'VERIFIED'),
+          ('SUP-2026-002', 'Kenya Seed Co-op', 'Input Supplies', 'VERIFIED');
+      `);
+    }
+
+    // Seed Beneficiaries if empty
+    const bRes = await pool.query("SELECT COUNT(*) FROM beneficiaries");
+    if (parseInt(bRes.rows[0].count) === 0) {
+      await pool.query(`
+        INSERT INTO beneficiaries (ben_id, group_name, county, member_count)
+        VALUES 
+          ('BEN-2026-901', 'Nakuru Smallholder Co-op', 'Nakuru', 450),
+          ('BEN-2026-902', 'Machakos Farmers Alliance', 'Machakos', 320);
+      `);
+    }
   } catch (err) {
-    console.error("Critical: Database migration hook failed.", err);
+    console.error("Database migration fault:", err);
   }
 };
 initDatabase();
 
-// -----------------------------------------------------------------------------
-// Core Vouchers & Accounting Endpoints
-// -----------------------------------------------------------------------------
+// API ENDPOINTS
 
-// 1. Post Voucher
-app.post("/api/vouchers", async (req, res) => {
-  const { voucherNo, date, componentCode, drComponent, drAmount, crAccount, crAmount } = req.body;
-
-  const balanceDelta = parseFloat(drAmount) - parseFloat(crAmount);
-  if (Math.abs(balanceDelta) !== 0) {
-    return res.status(400).json({
-      errorCode: "EX_DOUBLE_ENTRY_IMBALANCE",
-      message: `Accounting Validation Failure: Debit and Credit distributions must resolve to 0.00 exactly. Current Delta: ${balanceDelta.toFixed(2)} KES.`,
-    });
-  }
-
-  const selectedComponent = componentCode || "COMP-02";
-  const maxLimit = BUDGET_ALLOCATIONS[selectedComponent] || 15000000.0;
-
-  try {
-    const spentQuery = `
-      SELECT COALESCE(SUM(dr_amount), 0) as total_spent 
-      FROM vouchers 
-      WHERE component_code = $1 AND status IN ('CONFIRMED', 'APPROVED')
-    `;
-    const spentRes = await pool.query(spentQuery, [selectedComponent]);
-    const totalSpent = parseFloat(spentRes.rows[0].total_spent);
-
-    if (totalSpent + parseFloat(drAmount) > maxLimit) {
-      return res.status(400).json({
-        errorCode: "EX_STRICT_BUDGET_CAP_EXCEEDED",
-        message: `Transaction Blocked: Requested amount of KES ${parseFloat(drAmount).toLocaleString()} exceeds AWPB ceiling for ${selectedComponent}. Available Room: KES ${(maxLimit - totalSpent).toLocaleString()}.`,
-      });
-    }
-
-    const uuid = crypto.randomUUID();
-    const insertQuery = `
-      INSERT INTO vouchers (uuid, voucher_no, date, component_code, dr_component, dr_amount, cr_account, cr_amount, status, created_role)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING *
-    `;
-    const values = [
-      uuid,
-      voucherNo || `NAVCP-V-${Math.floor(100 + Math.random() * 900)}`,
-      date || new Date().toISOString().split("T")[0],
-      selectedComponent,
-      drComponent || "Component 2 (Agricultural Finance)",
-      parseFloat(drAmount),
-      crAccount || "Kenya CBK Designated Account",
-      parseFloat(crAmount),
-      "PENDING_QUEUE",
-      req.sandboxUser.role,
-    ];
-
-    const result = await pool.query(insertQuery, values);
-
-    // Write Audit Log
-    const logHash = crypto.createHash("sha256").update(JSON.stringify(result.rows[0])).digest("hex");
-    await pool.query(
-      `INSERT INTO audit_logs (id, action, actor, role, voucher_id, tx_hash) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [crypto.randomUUID(), "VOUCHER_CREATED", req.sandboxUser.id, req.sandboxUser.role, uuid, logHash]
-    );
-
-    return res.status(201).json({ message: "Voucher validation successful", record: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ message: "Database infrastructure write fault." });
-  }
-});
-
-// 2. Approve Voucher (Segregation of Duties)
-app.post("/api/vouchers/:uuid/approve", async (req, res) => {
-  const { uuid } = req.params;
-
-  try {
-    const voucherRes = await pool.query("SELECT * FROM vouchers WHERE uuid = $1", [uuid]);
-    if (voucherRes.rows.length === 0) {
-      return res.status(404).json({ message: "Target Voucher UUID not found." });
-    }
-
-    const voucher = voucherRes.rows[0];
-
-    if (voucher.created_role === req.sandboxUser.role) {
-      return res.status(403).json({
-        errorCode: "SOD_VIOLATION",
-        message: `Segregation of Duties Conflict: Role '${req.sandboxUser.role}' created this voucher and cannot approve it. Switch roles in top bar.`,
-      });
-    }
-
-    const approvalHash = crypto.createHash("sha256").update(`${uuid}-${req.sandboxUser.id}-${Date.now()}`).digest("hex");
-
-    await pool.query(
-      "UPDATE vouchers SET status = 'CONFIRMED', digital_signature = $1 WHERE uuid = $2",
-      [`sig_0x${approvalHash.substring(0, 16)}`, uuid]
-    );
-
-    await pool.query(
-      `INSERT INTO audit_logs (id, action, actor, role, voucher_id, tx_hash) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [crypto.randomUUID(), "VOUCHER_APPROVED", req.sandboxUser.id, req.sandboxUser.role, uuid, approvalHash]
-    );
-
-    return res.json({ success: true, message: "Voucher approved and posted to core ledger." });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// 3. Read Vouchers
+// 1. Vouchers / Payments
 app.get("/api/vouchers", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM vouchers ORDER BY created_at DESC");
-    const formatted = result.rows.map((row) => ({
-      uuid: row.uuid,
-      voucherNo: row.voucher_no,
-      date: row.date.toISOString().split("T")[0],
-      componentCode: row.component_code,
-      drComponent: row.dr_component,
-      drAmount: parseFloat(row.dr_amount),
-      crAccount: row.cr_account,
-      crAmount: parseFloat(row.cr_amount),
-      status: row.status,
-      createdRole: row.created_role,
-      ipfsHash: row.ipfs_hash,
-      digitalSignature: row.digital_signature,
-    }));
-    res.json(formatted);
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 4. Anchor Document
-app.post("/api/vouchers/:uuid/anchor", async (req, res) => {
-  const { uuid } = req.params;
-  const { fileName } = req.body;
-
+app.post("/api/vouchers", async (req, res) => {
+  const { amount, description, componentCode } = req.body;
+  const numAmt = parseFloat(amount || 0);
   try {
-    const mockFileContent = `${fileName || "invoice"}_salt_${Date.now()}`;
-    const computedHash = "Qm" + crypto.createHash("sha256").update(mockFileContent).digest("hex").substring(0, 44);
-    const digitalSignature = "sig_0x" + crypto.randomBytes(8).toString("hex");
-
-    await pool.query(
-      "UPDATE vouchers SET ipfs_hash = $1, digital_signature = $2, status = 'CONFIRMED' WHERE uuid = $3",
-      [computedHash, digitalSignature, uuid]
+    const voucherNo = `PAY-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const result = await pool.query(
+      `INSERT INTO vouchers (voucher_no, date, component_code, dr_component, dr_amount, cr_account, cr_amount, status, created_role)
+       VALUES ($1, NOW(), $2, $3, $4, $5, $6, 'APPROVED', $7) RETURNING *`,
+      [voucherNo, componentCode || "COMP-01", description || "Payment Action", numAmt, "CBK Designated Account", numAmt, req.sandboxUser.role]
     );
-
-    res.json({ message: "Attached & Signed", ipfsHash: computedHash, signature: digitalSignature });
+    res.status(201).json({ message: `Payment Voucher ${voucherNo} posted successfully!`, record: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// -----------------------------------------------------------------------------
-// Resource Specific REST & Navigation Route Handlers
-// -----------------------------------------------------------------------------
-
-// Projects
-app.get("/api/projects", async (req, res) => {
-  res.json([
-    {
-      id: "P175248",
-      name: "Kenya Climate Smart Agriculture Project (KCSAP)",
-      country: "Kenya",
-      status: "ACTIVE",
-      budget: 18450000000,
-    },
-  ]);
-});
-
-// Tasks
-app.get("/api/tasks", async (req, res) => {
-  res.json([
-    { id: "TSK-101", title: "Approve Payment PAY-2026-0842", priority: "HIGH", status: "PENDING" },
-    { id: "TSK-102", title: "Verify Q2 IFR Report Documentation", priority: "MEDIUM", status: "IN_PROGRESS" },
-    { id: "TSK-103", title: "Review Contract Proposal COM-2026-0154", priority: "LOW", status: "PENDING" },
-  ]);
-});
-
-// Contracts (Read & Create)
+// 2. Contracts & Procurement
 app.get("/api/contracts", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM contracts ORDER BY created_at DESC");
@@ -334,20 +213,15 @@ app.post("/api/contracts", async (req, res) => {
     const contractNo = `CTR-${Math.floor(1000 + Math.random() * 9000)}`;
     const result = await pool.query(
       "INSERT INTO contracts (contract_no, title, vendor, amount) VALUES ($1, $2, $3, $4) RETURNING *",
-      [contractNo, title || "Infrastructure Works", vendor || "BuildCorp Ltd", parseFloat(amount || 5000000)]
+      [contractNo, title || "New Procurement Contract", vendor || "Contractor Ltd", parseFloat(amount || 25000000)]
     );
-
-    res.status(201).json({
-      success: true,
-      message: `Contract ${contractNo} initialized for KES ${parseFloat(amount || 5000000).toLocaleString()}.`,
-      contract: result.rows[0],
-    });
+    res.status(201).json({ message: `Contract ${contractNo} posted successfully!`, record: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Disbursements (Read & Create)
+// 3. Disbursements
 app.get("/api/disbursements", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM disbursements ORDER BY created_at DESC");
@@ -358,37 +232,20 @@ app.get("/api/disbursements", async (req, res) => {
 });
 
 app.post("/api/disbursements", async (req, res) => {
-  const { amount, sourceAccount } = req.body;
+  const { source, amount } = req.body;
   try {
-    const refNo = `DISB-${Math.floor(10000 + Math.random() * 90000)}`;
+    const refNo = `DISB-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     const result = await pool.query(
       "INSERT INTO disbursements (ref_no, source_account, amount) VALUES ($1, $2, $3) RETURNING *",
-      [refNo, sourceAccount || "Kenya CBK Designated Account", parseFloat(amount || 10000000)]
+      [refNo, source || "IBRD Special Account", parseFloat(amount || 50000000)]
     );
-
-    res.status(201).json({
-      success: true,
-      message: `Disbursement ${refNo} of KES ${parseFloat(amount || 10000000).toLocaleString()} credited to Designated Account.`,
-      disbursement: result.rows[0],
-    });
+    res.status(201).json({ message: `Disbursement ${refNo} posted successfully!`, record: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Payments (Maps to Vouchers marked as PAYMENTS or CONFIRMED)
-app.get("/api/payments", async (req, res) => {
-  try {
-    const result = await pool.query(
-      "SELECT uuid, voucher_no as ref_no, date, dr_amount as amount, status FROM vouchers ORDER BY created_at DESC"
-    );
-    res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Suppliers (Read & Create)
+// 4. Suppliers
 app.get("/api/suppliers", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM suppliers ORDER BY created_at DESC");
@@ -401,23 +258,18 @@ app.get("/api/suppliers", async (req, res) => {
 app.post("/api/suppliers", async (req, res) => {
   const { name, category } = req.body;
   try {
-    const supplierId = `SUP-${Math.floor(100 + Math.random() * 900)}`;
+    const suppId = `SUP-2026-${Math.floor(100 + Math.random() * 900)}`;
     const result = await pool.query(
       "INSERT INTO suppliers (supplier_id, name, category) VALUES ($1, $2, $3) RETURNING *",
-      [supplierId, name || "AgriTech Kenya", category || "Agriculture"]
+      [suppId, name || "Global Agro Tech", category || "Equipment Supplier"]
     );
-
-    res.status(201).json({
-      success: true,
-      message: `Supplier ${name || "AgriTech Kenya"} registered with ID ${supplierId}.`,
-      supplier: result.rows[0],
-    });
+    res.status(201).json({ message: `Supplier ${suppId} registered successfully!`, record: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Beneficiaries (Read & Create)
+// 5. Beneficiaries
 app.get("/api/beneficiaries", async (req, res) => {
   try {
     const result = await pool.query("SELECT * FROM beneficiaries ORDER BY created_at DESC");
@@ -428,47 +280,70 @@ app.get("/api/beneficiaries", async (req, res) => {
 });
 
 app.post("/api/beneficiaries", async (req, res) => {
-  const { groupName, county, memberCount } = req.body;
+  const { groupName, county, members } = req.body;
   try {
-    const benId = `BEN-${Math.floor(1000 + Math.random() * 9000)}`;
+    const benId = `BEN-2026-${Math.floor(100 + Math.random() * 900)}`;
     const result = await pool.query(
       "INSERT INTO beneficiaries (ben_id, group_name, county, member_count) VALUES ($1, $2, $3, $4) RETURNING *",
-      [benId, groupName || "Kiambu Farmers Coop", county || "Kiambu", parseInt(memberCount || 45)]
+      [benId, groupName || "Community Water User Group", county || "Nakuru", parseInt(members || 150)]
     );
-
-    res.status(201).json({
-      success: true,
-      message: `Beneficiary Group '${groupName || "Kiambu Farmers Coop"}' onboarded with ${memberCount || 45} members.`,
-      beneficiary: result.rows[0],
-    });
+    res.status(201).json({ message: `Beneficiary Group ${benId} added successfully!`, record: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// IFR Report Generation Endpoint
-app.get("/api/reports/ifr", async (req, res) => {
+// 6. Documents
+app.get("/api/documents", async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM vouchers WHERE status = 'CONFIRMED'");
-    const totalSpent = result.rows.reduce((sum, r) => sum + parseFloat(r.dr_amount), 0);
-
-    res.json({
-      success: true,
-      reportTitle: "Interim Financial Report (IFR)",
-      period: "Q2 2026",
-      totalSpent,
-      verifiedRecordsCount: result.rows.length,
-      stamp: "WB_IFR_CRYPTOGRAPHICALLY_VERIFIED",
-    });
+    const result = await pool.query("SELECT * FROM documents ORDER BY uploaded_at DESC");
+    res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// -----------------------------------------------------------------------------
-// Server Boot
-// -----------------------------------------------------------------------------
-const PORT = process.env.PORT || process.env.PORT_CORE_API || 5000;
+app.post("/api/documents", async (req, res) => {
+  const { title, type } = req.body;
+  try {
+    const docRef = `DOC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const ipfsHash = `Qm${crypto.randomBytes(22).toString("hex")}`;
+    const result = await pool.query(
+      "INSERT INTO documents (doc_ref, title, type, ipfs_hash) VALUES ($1, $2, $3, $4) RETURNING *",
+      [docRef, title || "Quarterly Audit Report", type || "PDF", ipfsHash]
+    );
+    res.status(201).json({ message: `Document ${docRef} anchored to IPFS!`, record: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Tasks & Projects & Reports
+app.get("/api/tasks", (req, res) => {
+  res.json([
+    { task_id: "TSK-101", title: "Approve Payment PAY-2026-0842", priority: "HIGH", status: "PENDING", due_date: "2026-06-25" },
+    { task_id: "TSK-102", title: "Verify Q2 IFR Report Documentation", priority: "MEDIUM", status: "IN_PROGRESS", due_date: "2026-06-30" },
+    { task_id: "TSK-103", title: "Audit Nakuru Irrigation Sub-Project", priority: "URGENT", status: "OPEN", due_date: "2026-07-05" }
+  ]);
+});
+
+app.get("/api/projects", (req, res) => {
+  res.json([
+    { project_id: "P175248", name: "Kenya Climate Smart Agriculture Project", budget: "KES 18.45 Bn", country: "Kenya", status: "ACTIVE" },
+    { project_id: "P168742", name: "Regional Water Management Initiative", budget: "KES 12.10 Bn", country: "Uganda", status: "PLANNING" }
+  ]);
+});
+
+app.get("/api/reports/ifr", (req, res) => {
+  res.json({
+    period: "Q2 2026 (Jan - Jun 2026)",
+    totalSpent: 2310000000.0,
+    stamp: "WB-IFR-CRYPTOGRAPHICALLY-VERIFIED",
+    generated_at: new Date().toISOString()
+  });
+});
+
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`FundsChain Core Engine serving on port ${PORT}`);
+  console.log(`FundsChain v4.1.1 Engine active on port ${PORT}`);
 });
